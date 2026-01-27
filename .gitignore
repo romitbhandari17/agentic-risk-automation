@@ -1,0 +1,44 @@
+# --- JetBrains / IntelliJ ---
+.idea/
+*.iml
+
+# --- Python ---`
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Terraform / OpenTofu (never commit) ---
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+
+# Keep lock files (recommended)
+!**/.terraform.lock.hcl
+
+# --- Local env tfvars (often contain secrets) ---
+*.auto.tfvars
+*.tfvars
+# If you want to keep a non-secret example committed, name it like:
+# dev.auto.tfvars.example (and keep it out of these ignore rules)
+
+# --- Lambda build artifacts (generated) ---
+**/build/
+**/dist/
+*.zip
+
+# --- Local IAM policy JSON used for CLI (generated/local) ---
+sfn_poc_policy.json
+terraform_poc_sfn_policy.json
+sfn_poc_policy*.json
