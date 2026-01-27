@@ -39,6 +39,3 @@ crash.*.log
 *.zip
 
 # --- Local IAM policy JSON used for CLI (generated/local) ---
-sfn_poc_policy.json
-terraform_poc_sfn_policy.json
-sfn_poc_policy*.json

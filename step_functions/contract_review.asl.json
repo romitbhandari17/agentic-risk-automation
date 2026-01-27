@@ -5,26 +5,51 @@
     "Ingest": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arn",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
       "Next": "RiskAnalysis"
     },
     "RiskAnalysis": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arn",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
       "Next": "Compliance"
     },
     "Compliance": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arn",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
       "Next": "Summary"
     },
     "Summary": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arn",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
       "Next": "Approval"
     },
     "Approval": {
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.lambda_arn",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
       "End": true
     }
   }
