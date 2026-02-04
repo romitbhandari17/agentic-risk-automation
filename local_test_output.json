@@ -1,0 +1,80 @@
+{
+  "s3": {
+    "bucket": "agentic-risk-automation-dev-artifacts",
+    "key": "contracts/Master_Services_Agreement.pdf"
+  },
+  "vendor_metadata": {
+    "region": "us-east-1",
+    "contract_type": "MSA",
+    "vendor_name": "Test Vendor"
+  },
+  "contract_id": null,
+  "ingestion_result": {
+    "contract_id": "42f36984-d5f0-45f1-ab32-d99f72764f6e",
+    "source": {
+      "bucket": "agentic-risk-automation-dev-artifacts",
+      "key": "contracts/Master_Services_Agreement.pdf"
+    },
+    "extracted": {
+      "governing_law": "laws of the State of New York",
+      "termination_clause": "Customer may terminate for convenience with 60 days' notice. Either party may terminate for cause upon written notice if the other party materially breaches and fails to cure within 30 days.",
+      "liability_clause": "Total aggregate liability capped at fees paid or payable in the preceding twelve months. Excluded claims include breach of confidentiality, IP infringement, or gross negligence or willful misconduct.",
+      "indemnity_clause": "Vendor will indemnify Customer for third-party claims arising from IP infringement or misconduct. Customer will indemnify Vendor for claims arising from misuse of Services.",
+      "data_protection": "Vendor will implement and maintain security measures to protect Customer Data. Vendor will notify Customer of security incidents within 72 hours.",
+      "payment_terms": "Customer will pay undisputed invoices within 30 days of receipt. Overdue amounts may accrue interest at 1.5% per month or the maximum allowed by law, whichever is lower.",
+      "renewal_terms": "The Agreement will automatically renew for successive one-year periods unless either party provides written notice of non-renewal at least 30 days before the end of the then-current term."
+    },
+    "chunk_count": 1,
+    "bedrock_failures": [],
+    "status": "INGESTED"
+  },
+  "risk_result": {
+    "contract_id": "42f36984-d5f0-45f1-ab32-d99f72764f6e",
+    "risk": {
+      "overall_risk": 6,
+      "liability_risk": 5,
+      "termination_risk": 4,
+      "financial_risk": 5,
+      "rationale": "The contract presents moderate to high risk across several areas. Liability risk is moderate due to the capped liability and exclusions for certain claims, but the exclusion of gross negligence or willful misconduct could lead to significant issues. Termination risk is moderate because the convenience termination clause allows for a 60-day notice period, which is reasonable but not the shortest. Financial risk is moderate due to the interest on overdue payments, which is capped at a reasonable rate. Overall, the contract is balanced but has some areas that could pose significant risks if not managed properly."
+    },
+    "risk_flag": "OK",
+    "status": "RISK_ANALYZED"
+  },
+  "summary_result": {
+    "summary": "\u2022 Contract presents moderate overall risk (6/10) with balanced terms\n\u2022 Liability cap is reasonable but excludes gross negligence - requires careful operational oversight\n\u2022 Payment terms are standard (Net 30) with modest late payment penalties\n\u2022 Auto-renewal clause requires 30-day notice - implement calendar reminder system\n\u2022 Recommend approval with quarterly compliance reviews",
+    "status": "SUMMARIZED"
+  },
+  "approval_payload": {
+    "contract_id": "42f36984-d5f0-45f1-ab32-d99f72764f6e",
+    "s3_location": "s3://agentic-risk-automation-dev-artifacts/contracts/Master_Services_Agreement.pdf",
+    "vendor_metadata": {
+      "region": "us-east-1",
+      "contract_type": "MSA",
+      "vendor_name": "Test Vendor"
+    },
+    "risk_flag": "OK",
+    "risk_scores": {
+      "overall": 6,
+      "liability": 5,
+      "termination": 4,
+      "financial": 5
+    },
+    "rationale": "The contract presents moderate to high risk across several areas. Liability risk is moderate due to the capped liability and exclusions for certain claims, but the exclusion of gross negligence or willful misconduct could lead to significant issues. Termination risk is moderate because the convenience termination clause allows for a 60-day notice period, which is reasonable but not the shortest. Financial risk is moderate due to the interest on overdue payments, which is capped at a reasonable rate. Overall, the contract is balanced but has some areas that could pose significant risks if not managed properly.",
+    "summary": "\u2022 Contract presents moderate overall risk (6/10) with balanced terms\n\u2022 Liability cap is reasonable but excludes gross negligence - requires careful operational oversight\n\u2022 Payment terms are standard (Net 30) with modest late payment penalties\n\u2022 Auto-renewal clause requires 30-day notice - implement calendar reminder system\n\u2022 Recommend approval with quarterly compliance reviews",
+    "extracted_clauses": {
+      "governing_law": "laws of the State of New York",
+      "termination_clause": "Customer may terminate for convenience with 60 days' notice. Either party may terminate for cause upon written notice if the other party materially breaches and fails to cure within 30 days.",
+      "liability_clause": "Total aggregate liability capped at fees paid or payable in the preceding twelve months. Excluded claims include breach of confidentiality, IP infringement, or gross negligence or willful misconduct.",
+      "indemnity_clause": "Vendor will indemnify Customer for third-party claims arising from IP infringement or misconduct. Customer will indemnify Vendor for claims arising from misuse of Services.",
+      "data_protection": "Vendor will implement and maintain security measures to protect Customer Data. Vendor will notify Customer of security incidents within 72 hours.",
+      "payment_terms": "Customer will pay undisputed invoices within 30 days of receipt. Overdue amounts may accrue interest at 1.5% per month or the maximum allowed by law, whichever is lower.",
+      "renewal_terms": "The Agreement will automatically renew for successive one-year periods unless either party provides written notice of non-renewal at least 30 days before the end of the then-current term."
+    }
+  },
+  "approval_result": {
+    "decision": "APPROVED",
+    "approved_by": "john.doe@example.com",
+    "timestamp": "2026-01-30T11:47:26.438887",
+    "comments": "Contract terms are acceptable. Proceed with execution."
+  }
+}

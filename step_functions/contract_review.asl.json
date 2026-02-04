@@ -1,56 +1,119 @@
 {
-  "Comment": "Contract review step function (skeleton)",
-  "StartAt": "Ingest",
+  "Comment": "Simplified Contract Review Workflow - Ingestion and Risk Analysis Only",
+  "StartAt": "IngestionAgent",
   "States": {
-    "Ingest": {
+    "IngestionAgent": {
       "Type": "Task",
+      "Comment": "Ingests contract from S3, extracts text via Textract, and structures key clauses using Bedrock",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName.$": "$.lambda_arn",
-        "Payload.$": "$"
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "s3.$": "$.s3",
+          "vendor_metadata.$": "$.vendor_metadata",
+          "contract_id.$": "$.contract_id"
+        }
       },
-      "OutputPath": "$.Payload",
-      "Next": "RiskAnalysis"
+      "ResultPath": "$.ingestion_result",
+      "ResultSelector": {
+        "contract_id.$": "$.Payload.contract_id",
+        "source.$": "$.Payload.source",
+        "extracted.$": "$.Payload.extracted",
+        "chunk_count.$": "$.Payload.chunk_count",
+        "status.$": "$.Payload.status"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "WorkflowFailed"
+        }
+      ],
+      "Next": "RiskAnalysisAgent"
     },
-    "RiskAnalysis": {
+    "RiskAnalysisAgent": {
       "Type": "Task",
+      "Comment": "Analyzes contract for risk using Bedrock and assigns risk scores",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName.$": "$.lambda_arn",
-        "Payload.$": "$"
+        "FunctionName": "${RiskAnalysisLambdaArn}",
+        "Payload": {
+          "contract_id.$": "$.ingestion_result.contract_id",
+          "extracted.$": "$.ingestion_result.extracted",
+          "s3.$": "$.s3",
+          "vendor_metadata.$": "$.vendor_metadata"
+        }
       },
-      "OutputPath": "$.Payload",
-      "Next": "Compliance"
+      "ResultPath": "$.risk_result",
+      "ResultSelector": {
+        "contract_id.$": "$.Payload.contract_id",
+        "risk.$": "$.Payload.risk",
+        "risk_flag.$": "$.Payload.risk_flag",
+        "status.$": "$.Payload.status"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "WorkflowFailed"
+        }
+      ],
+      "Next": "PrepareOutput"
     },
-    "Compliance": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
+    "PrepareOutput": {
+      "Type": "Pass",
+      "Comment": "Prepare final output with risk scores",
       "Parameters": {
-        "FunctionName.$": "$.lambda_arn",
-        "Payload.$": "$"
+        "contract_id.$": "$.ingestion_result.contract_id",
+        "s3_location.$": "States.Format('s3://{}/{}', $.s3.bucket, $.s3.key)",
+        "vendor_metadata.$": "$.vendor_metadata",
+        "risk_flag.$": "$.risk_result.risk_flag",
+        "risk_scores": {
+          "overall.$": "$.risk_result.risk.overall_risk",
+          "liability.$": "$.risk_result.risk.liability_risk",
+          "termination.$": "$.risk_result.risk.termination_risk",
+          "financial.$": "$.risk_result.risk.financial_risk"
+        },
+        "rationale.$": "$.risk_result.risk.rationale",
+        "extracted_clauses.$": "$.ingestion_result.extracted",
+        "status": "COMPLETED"
       },
-      "OutputPath": "$.Payload",
-      "Next": "Summary"
+      "ResultPath": "$.final_output",
+      "Next": "WorkflowComplete"
     },
-    "Summary": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName.$": "$.lambda_arn",
-        "Payload.$": "$"
-      },
-      "OutputPath": "$.Payload",
-      "Next": "Approval"
+    "WorkflowComplete": {
+      "Type": "Succeed",
+      "Comment": "Contract review workflow completed successfully",
+      "OutputPath": "$.final_output"
     },
-    "Approval": {
-      "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
-      "Parameters": {
-        "FunctionName.$": "$.lambda_arn",
-        "Payload.$": "$"
-      },
-      "OutputPath": "$.Payload",
-      "End": true
+    "WorkflowFailed": {
+      "Type": "Fail",
+      "Comment": "Contract review workflow failed",
+      "Cause": "Ingestion or Risk Analysis step failed"
     }
   }
 }

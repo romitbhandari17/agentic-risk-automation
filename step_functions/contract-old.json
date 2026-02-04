@@ -1,0 +1,459 @@
+{
+  "Comment": "Agentic Contract Review Workflow - Orchestrates ingestion, risk analysis, summary generation, and human approval",
+  "StartAt": "IngestionAgent",
+  "States": {
+    "IngestionAgent": {
+      "Type": "Task",
+      "Comment": "Ingests contract from S3, extracts text via Textract, and structures key clauses using Bedrock",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${IngestionLambdaArn}",
+        "Payload": {
+          "s3.$": "$.s3",
+          "vendor_metadata.$": "$.vendor_metadata",
+          "contract_id.$": "$.contract_id"
+        }
+      },
+      "ResultPath": "$.ingestion_result",
+      "ResultSelector": {
+        "contract_id.$": "$.Payload.contract_id",
+        "source.$": "$.Payload.source",
+        "extracted.$": "$.Payload.extracted",
+        "chunk_count.$": "$.Payload.chunk_count",
+        "status.$": "$.Payload.status"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "IngestionFailed"
+        }
+      ],
+      "Next": "RiskAnalysisAgent"
+    },
+    "RiskAnalysisAgent": {
+      "Type": "Task",
+      "Comment": "Analyzes contract for risk using Bedrock and assigns risk scores",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${RiskAnalysisLambdaArn}",
+        "Payload": {
+          "contract_id.$": "$.ingestion_result.contract_id",
+          "extracted.$": "$.ingestion_result.extracted",
+          "s3.$": "$.s3",
+          "vendor_metadata.$": "$.vendor_metadata"
+        }
+      },
+      "ResultPath": "$.risk_result",
+      "ResultSelector": {
+        "contract_id.$": "$.Payload.contract_id",
+        "risk.$": "$.Payload.risk",
+        "risk_flag.$": "$.Payload.risk_flag",
+        "status.$": "$.Payload.status"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RiskAnalysisFailed"
+        }
+      ],
+      "Next": "CheckRiskLevel"
+    },
+    "CheckRiskLevel": {
+      "Type": "Choice",
+      "Comment": "Route based on risk flag - high risk contracts need more scrutiny",
+      "Choices": [
+        {
+          "Variable": "$.risk_result.risk_flag",
+          "StringEquals": "HIGH_RISK",
+          "Next": "HighRiskNotification"
+        }
+      ],
+      "Default": "SummaryAgent"
+    },
+    "HighRiskNotification": {
+      "Type": "Task",
+      "Comment": "Send SNS notification for high-risk contracts",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${HighRiskSNSTopicArn}",
+        "Subject": "HIGH RISK Contract Detected",
+        "Message": {
+          "contract_id.$": "$.ingestion_result.contract_id",
+          "risk_flag.$": "$.risk_result.risk_flag",
+          "overall_risk.$": "$.risk_result.risk.overall_risk",
+          "liability_risk.$": "$.risk_result.risk.liability_risk",
+          "termination_risk.$": "$.risk_result.risk.termination_risk",
+          "financial_risk.$": "$.risk_result.risk.financial_risk",
+          "rationale.$": "$.risk_result.risk.rationale",
+          "s3_location.$": "States.Format('s3://{}/{}', $.s3.bucket, $.s3.key)"
+        }
+      },
+      "ResultPath": "$.notification_result",
+      "Next": "SummaryAgent"
+    },
+    "SummaryAgent": {
+      "Type": "Task",
+      "Comment": "Generates executive summary using Bedrock directly (no Lambda needed)",
+      "Resource": "arn:aws:states:::bedrock:invokeModel",
+      "Parameters": {
+        "ModelId": "${BedrockModelId}",
+        "Body": {
+          "anthropic_version": "bedrock-2023-05-31",
+          "max_tokens": 1000,
+          "temperature": 0,
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text.$": "States.Format('Generate a concise executive summary for the following contract analysis:\n\nContract ID: {}\nVendor: {}\nRisk Level: {}\nOverall Risk Score: {}/10\n\nKey Clauses:\n{}\n\nRisk Analysis:\n{}\n\nProvide a 3-5 bullet point executive summary highlighting the most critical findings and recommendations.', $.ingestion_result.contract_id, $.vendor_metadata.contract_type, $.risk_result.risk_flag, $.risk_result.risk.overall_risk, States.JsonToString($.ingestion_result.extracted), $.risk_result.risk.rationale)"
+                }
+              ]
+            }
+          ]
+        },
+        "ContentType": "application/json"
+      },
+      "ResultPath": "$.summary_result",
+      "ResultSelector": {
+        "summary.$": "$.Body.content[0].text",
+        "status": "SUMMARIZED"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Bedrock.ModelTimeoutException",
+            "Bedrock.ThrottlingException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "SummaryFailed"
+        }
+      ],
+      "Next": "PrepareApprovalPayload"
+    },
+    "PrepareApprovalPayload": {
+      "Type": "Pass",
+      "Comment": "Prepare data for human approval",
+      "Parameters": {
+        "contract_id.$": "$.ingestion_result.contract_id",
+        "s3_location.$": "States.Format('s3://{}/{}', $.s3.bucket, $.s3.key)",
+        "vendor_metadata.$": "$.vendor_metadata",
+        "risk_flag.$": "$.risk_result.risk_flag",
+        "risk_scores": {
+          "overall.$": "$.risk_result.risk.overall_risk",
+          "liability.$": "$.risk_result.risk.liability_risk",
+          "termination.$": "$.risk_result.risk.termination_risk",
+          "financial.$": "$.risk_result.risk.financial_risk"
+        },
+        "rationale.$": "$.risk_result.risk.rationale",
+        "summary.$": "$.summary_result.summary",
+        "extracted_clauses.$": "$.ingestion_result.extracted"
+      },
+      "ResultPath": "$.approval_payload",
+      "Next": "HumanApproval"
+    },
+    "HumanApproval": {
+      "Type": "Task",
+      "Comment": "Human-in-the-loop approval using Step Functions callback pattern",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${ApprovalLambdaArn}",
+        "Payload": {
+          "task_token.$": "$$.Task.Token",
+          "approval_data.$": "$.approval_payload",
+          "execution_name.$": "$$.Execution.Name",
+          "execution_id.$": "$$.Execution.Id"
+        }
+      },
+      "ResultPath": "$.approval_result",
+      "HeartbeatSeconds": 86400,
+      "TimeoutSeconds": 604800,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.Timeout"],
+          "ResultPath": "$.error",
+          "Next": "ApprovalTimeout"
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ApprovalFailed"
+        }
+      ],
+      "Next": "CheckApprovalDecision"
+    },
+    "CheckApprovalDecision": {
+      "Type": "Choice",
+      "Comment": "Route based on human approval decision",
+      "Choices": [
+        {
+          "Variable": "$.approval_result.decision",
+          "StringEquals": "APPROVED",
+          "Next": "ContractApproved"
+        },
+        {
+          "Variable": "$.approval_result.decision",
+          "StringEquals": "REJECTED",
+          "Next": "ContractRejected"
+        }
+      ],
+      "Default": "ApprovalFailed"
+    },
+    "ContractApproved": {
+      "Type": "Task",
+      "Comment": "Store approved contract metadata in DynamoDB",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${DynamoDBTableName}",
+        "Item": {
+          "contract_id": {
+            "S.$": "$.approval_payload.contract_id"
+          },
+          "status": {
+            "S": "APPROVED"
+          },
+          "risk_flag": {
+            "S.$": "$.approval_payload.risk_flag"
+          },
+          "overall_risk": {
+            "N.$": "States.Format('{}', $.approval_payload.risk_scores.overall)"
+          },
+          "s3_location": {
+            "S.$": "$.approval_payload.s3_location"
+          },
+          "vendor_metadata": {
+            "S.$": "States.JsonToString($.approval_payload.vendor_metadata)"
+          },
+          "approved_by": {
+            "S.$": "$.approval_result.approved_by"
+          },
+          "approved_at": {
+            "S.$": "$.approval_result.timestamp"
+          },
+          "comments": {
+            "S.$": "$.approval_result.comments"
+          },
+          "summary": {
+            "S.$": "$.approval_payload.summary"
+          },
+          "extracted_clauses": {
+            "S.$": "States.JsonToString($.approval_payload.extracted_clauses)"
+          }
+        }
+      },
+      "ResultPath": "$.ddb_result",
+      "Next": "SendApprovalNotification"
+    },
+    "ContractRejected": {
+      "Type": "Task",
+      "Comment": "Store rejected contract metadata in DynamoDB",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${DynamoDBTableName}",
+        "Item": {
+          "contract_id": {
+            "S.$": "$.approval_payload.contract_id"
+          },
+          "status": {
+            "S": "REJECTED"
+          },
+          "risk_flag": {
+            "S.$": "$.approval_payload.risk_flag"
+          },
+          "overall_risk": {
+            "N.$": "States.Format('{}', $.approval_payload.risk_scores.overall)"
+          },
+          "s3_location": {
+            "S.$": "$.approval_payload.s3_location"
+          },
+          "vendor_metadata": {
+            "S.$": "States.JsonToString($.approval_payload.vendor_metadata)"
+          },
+          "rejected_by": {
+            "S.$": "$.approval_result.rejected_by"
+          },
+          "rejected_at": {
+            "S.$": "$.approval_result.timestamp"
+          },
+          "rejection_reason": {
+            "S.$": "$.approval_result.comments"
+          },
+          "summary": {
+            "S.$": "$.approval_payload.summary"
+          }
+        }
+      },
+      "ResultPath": "$.ddb_result",
+      "Next": "SendRejectionNotification"
+    },
+    "SendApprovalNotification": {
+      "Type": "Task",
+      "Comment": "Send notification that contract was approved",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ApprovalSNSTopicArn}",
+        "Subject": "Contract Approved",
+        "Message": {
+          "status": "APPROVED",
+          "contract_id.$": "$.approval_payload.contract_id",
+          "risk_flag.$": "$.approval_payload.risk_flag",
+          "approved_by.$": "$.approval_result.approved_by",
+          "comments.$": "$.approval_result.comments",
+          "s3_location.$": "$.approval_payload.s3_location"
+        }
+      },
+      "ResultPath": "$.notification_result",
+      "Next": "WorkflowComplete"
+    },
+    "SendRejectionNotification": {
+      "Type": "Task",
+      "Comment": "Send notification that contract was rejected",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ApprovalSNSTopicArn}",
+        "Subject": "Contract Rejected",
+        "Message": {
+          "status": "REJECTED",
+          "contract_id.$": "$.approval_payload.contract_id",
+          "risk_flag.$": "$.approval_payload.risk_flag",
+          "rejected_by.$": "$.approval_result.rejected_by",
+          "rejection_reason.$": "$.approval_result.comments",
+          "s3_location.$": "$.approval_payload.s3_location"
+        }
+      },
+      "ResultPath": "$.notification_result",
+      "Next": "WorkflowComplete"
+    },
+    "WorkflowComplete": {
+      "Type": "Succeed",
+      "Comment": "Contract review workflow completed successfully"
+    },
+    "IngestionFailed": {
+      "Type": "Task",
+      "Comment": "Send failure notification for ingestion errors",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ErrorSNSTopicArn}",
+        "Subject": "Contract Ingestion Failed",
+        "Message": {
+          "error.$": "$.error.Error",
+          "cause.$": "$.error.Cause",
+          "contract_id.$": "$.contract_id",
+          "s3_location.$": "States.Format('s3://{}/{}', $.s3.bucket, $.s3.key)"
+        }
+      },
+      "Next": "WorkflowFailed"
+    },
+    "RiskAnalysisFailed": {
+      "Type": "Task",
+      "Comment": "Send failure notification for risk analysis errors",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ErrorSNSTopicArn}",
+        "Subject": "Risk Analysis Failed",
+        "Message": {
+          "error.$": "$.error.Error",
+          "cause.$": "$.error.Cause",
+          "contract_id.$": "$.ingestion_result.contract_id"
+        }
+      },
+      "Next": "WorkflowFailed"
+    },
+    "SummaryFailed": {
+      "Type": "Task",
+      "Comment": "Send failure notification for summary generation errors",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ErrorSNSTopicArn}",
+        "Subject": "Summary Generation Failed",
+        "Message": {
+          "error.$": "$.error.Error",
+          "cause.$": "$.error.Cause",
+          "contract_id.$": "$.ingestion_result.contract_id"
+        }
+      },
+      "Next": "WorkflowFailed"
+    },
+    "ApprovalTimeout": {
+      "Type": "Task",
+      "Comment": "Send notification when approval times out",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ErrorSNSTopicArn}",
+        "Subject": "Contract Approval Timeout",
+        "Message": {
+          "error": "Approval request timed out (7 days)",
+          "contract_id.$": "$.approval_payload.contract_id",
+          "s3_location.$": "$.approval_payload.s3_location"
+        }
+      },
+      "Next": "WorkflowFailed"
+    },
+    "ApprovalFailed": {
+      "Type": "Task",
+      "Comment": "Send failure notification for approval errors",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${ErrorSNSTopicArn}",
+        "Subject": "Contract Approval Failed",
+        "Message": {
+          "error.$": "$.error.Error",
+          "cause.$": "$.error.Cause",
+          "contract_id.$": "$.approval_payload.contract_id"
+        }
+      },
+      "Next": "WorkflowFailed"
+    },
+    "WorkflowFailed": {
+      "Type": "Fail",
+      "Comment": "Contract review workflow failed"
+    }
+  }
+}

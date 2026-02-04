@@ -1,7 +1,12 @@
 # file: modules/iam/outputs.tf
-output "lambda_role_arn" {
-  description = "ARN of the Lambda execution role"
-  value       = aws_iam_role.lambda_role.arn
+output "ingestion_lambda_role_arn" {
+  description = "ARN of the Ingestion Lambda execution role"
+  value       = aws_iam_role.ingestion_lambda_role.arn
+}
+
+output "risk_analysis_lambda_role_arn" {
+  description = "ARN of the Risk Analysis Lambda execution role"
+  value       = aws_iam_role.risk_analysis_lambda_role.arn
 }
 
 output "sfn_role_arn" {

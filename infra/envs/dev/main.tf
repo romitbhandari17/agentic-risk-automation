@@ -13,7 +13,27 @@ variable "project" {
   type    = string
 }
 
-variable "lambda_zip_path" {
+variable "ingestion_zip_path" {
+  type    = string
+  default = ""
+}
+
+variable "risk_analysis_zip_path" {
+  type    = string
+  default = ""
+}
+
+variable "ingestion_lambda_arn" {
+  type    = string
+  default = ""
+}
+
+variable "risk_analysis_lambda_arn" {
+  type    = string
+  default = ""
+}
+
+variable "state_machine_arn" {
   type    = string
   default = ""
 }
@@ -24,5 +44,9 @@ module "infra_root" {
   region = var.region
   env    = var.env
   project = var.project
-  lambda_zip_path = var.lambda_zip_path
+  ingestion_zip_path = var.ingestion_zip_path
+  risk_analysis_zip_path = var.risk_analysis_zip_path
+  ingestion_lambda_arn = var.ingestion_lambda_arn
+  risk_analysis_lambda_arn = var.risk_analysis_lambda_arn
+  state_machine_arn = var.state_machine_arn
 }

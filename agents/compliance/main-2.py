@@ -4,7 +4,6 @@ import time
 import uuid
 import logging
 from typing import Any, Dict, List, Optional
-from urllib.parse import unquote_plus
 
 import boto3
 from botocore.exceptions import ClientError
@@ -15,15 +14,13 @@ logger.setLevel(logging.INFO)
 
 # -------- Config (env vars) --------
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+DDB_TABLE = os.environ.get("DDB_TABLE", "contract_risk_analysis")  # e.g., "contracts-structured"
 # MODEL_ID can be a base model ID or an inference profile ID/ARN.
 # For Amazon Nova, it's recommended to use cross-region inference profiles for better availability/throughput.
 # e.g., "us.amazon.nova-lite-v1:0" for cross-region inference profile.
 MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
 MAX_CHARS_PER_CHUNK = int(os.environ.get("MAX_CHARS_PER_CHUNK", "12000"))
 BEDROCK_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "1200"))
-
-# Add configurable Textract wait timeout
-TEXTRACT_WAIT_TIMEOUT = int(os.environ.get("TEXTRACT_WAIT_TIMEOUT", "300"))  # seconds
 
 s3 = boto3.client("s3", region_name=AWS_REGION)
 textract = boto3.client("textract", region_name=AWS_REGION)
@@ -72,32 +69,32 @@ def _json_loads_safely(text: str) -> Dict[str, Any]:
     Attempts to parse a JSON object from a model response that may include extra text.
     We extract the first {...} block as a pragmatic guardrail.
     """
-    print("_json_loads_safely: Starting JSON parsing")
+    logger.info("_json_loads_safely: Starting JSON parsing")
     logger.debug(f"_json_loads_safely: Input text length: {len(text)}")
 
     text = text.strip()
     if text.startswith("{") and text.endswith("}"):
-        print("_json_loads_safely: Text is valid JSON format, parsing")
+        logger.info("_json_loads_safely: Text is valid JSON format, parsing")
         result = json.loads(text)
-        print("_json_loads_safely: Successfully parsed JSON")
+        logger.info("_json_loads_safely: Successfully parsed JSON")
         return result
 
-    print("_json_loads_safely: Extracting JSON block from text")
+    logger.info("_json_loads_safely: Extracting JSON block from text")
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        print(f"_json_loads_safely: Found JSON block from position {start} to {end}")
+        logger.info(f"_json_loads_safely: Found JSON block from position {start} to {end}")
         result = json.loads(text[start : end + 1])
-        print("_json_loads_safely: Successfully parsed extracted JSON")
+        logger.info("_json_loads_safely: Successfully parsed extracted JSON")
         return result
 
-    print("_json_loads_safely: No JSON object found in model output")
+    logger.error("_json_loads_safely: No JSON object found in model output")
     raise ValueError("No JSON object found in model output")
 
 
 def _validate_schema_minimal(obj: Dict[str, Any]) -> None:
     # Minimal validation without external dependency:
-    print("_validate_schema_minimal: Starting schema validation")
+    logger.info("_validate_schema_minimal: Starting schema validation")
 
     if not isinstance(obj, dict):
         logger.error("_validate_schema_minimal: Extraction output is not an object")
@@ -119,21 +116,21 @@ def _validate_schema_minimal(obj: Dict[str, Any]) -> None:
             logger.error(f"_validate_schema_minimal: Field '{k}' has invalid type: {type(v)}")
             raise ValueError(f"Field '{k}' must be string or null")
 
-    print("_validate_schema_minimal: Schema validation passed")
+    logger.info("_validate_schema_minimal: Schema validation passed")
 
 
 def _chunk_text(text: str, max_chars: int) -> List[str]:
-    print(f"_chunk_text: Starting text chunking with max_chars={max_chars}")
-    print(f"_chunk_text: Input text length: {len(text)} characters")
+    logger.info(f"_chunk_text: Starting text chunking with max_chars={max_chars}")
+    logger.info(f"_chunk_text: Input text length: {len(text)} characters")
 
     text = " ".join(text.split())  # normalize whitespace
     logger.debug(f"_chunk_text: After normalization, text length: {len(text)}")
 
     if len(text) <= max_chars:
-        print("_chunk_text: Text fits in single chunk, no splitting needed")
+        logger.info("_chunk_text: Text fits in single chunk, no splitting needed")
         return [text]
 
-    print("_chunk_text: Text requires chunking, processing...")
+    logger.info("_chunk_text: Text requires chunking, processing...")
     chunks: List[str] = []
     i = 0
     while i < len(text):
@@ -149,12 +146,12 @@ def _chunk_text(text: str, max_chars: int) -> List[str]:
         i = cut
 
     filtered_chunks = [c for c in chunks if c]
-    print(f"_chunk_text: Completed chunking. Total chunks created: {len(filtered_chunks)}")
+    logger.info(f"_chunk_text: Completed chunking. Total chunks created: {len(filtered_chunks)}")
     return filtered_chunks
 
 
 def _build_prompt(contract_text_chunk: str, vendor_metadata: Dict[str, Any]) -> str:
-    print("_build_prompt: Building prompt for Bedrock")
+    logger.info("_build_prompt: Building prompt for Bedrock")
     logger.debug(f"_build_prompt: Chunk length: {len(contract_text_chunk)}, Metadata keys: {list(vendor_metadata.keys())}")
 
     prompt = f"""You are a contract ingestion agent.
@@ -176,7 +173,7 @@ Vendor metadata (may help interpret the contract, but do not override text):
 Contract text:
 \"\"\"{contract_text_chunk}\"\"\"
 """
-    print(f"_build_prompt: Prompt built successfully, length: {len(prompt)}")
+    logger.info(f"_build_prompt: Prompt built successfully, length: {len(prompt)}")
     return prompt
 
 
@@ -184,7 +181,7 @@ def _invoke_bedrock(prompt: str) -> Dict[str, Any]:
     """
     Invokes Bedrock model. Supports Anthropic Claude and Amazon Nova model families.
     """
-    print(f"_invoke_bedrock: Invoking Bedrock model: {MODEL_ID}")
+    logger.info(f"_invoke_bedrock: Invoking Bedrock model: {MODEL_ID}")
     logger.debug(f"_invoke_bedrock: Prompt length: {len(prompt)}, Max tokens: {BEDROCK_MAX_TOKENS}")
 
     if MODEL_ID.startswith("anthropic."):
@@ -227,7 +224,7 @@ def _invoke_bedrock(prompt: str) -> Dict[str, Any]:
             ],
         }
 
-    print("_invoke_bedrock: Sending request to Bedrock")
+    logger.info("_invoke_bedrock: Sending request to Bedrock")
 
     resp = bedrock.invoke_model(
         modelId=MODEL_ID,
@@ -235,7 +232,7 @@ def _invoke_bedrock(prompt: str) -> Dict[str, Any]:
         accept="application/json",
         contentType="application/json",
     )
-    print("_invoke_bedrock: Received response from Bedrock")
+    logger.info("_invoke_bedrock: Received response from Bedrock")
 
     payload = json.loads(resp["body"].read().decode("utf-8"))
     logger.debug(f"_invoke_bedrock: Response payload keys: {list(payload.keys())}")
@@ -262,51 +259,39 @@ def _invoke_bedrock(prompt: str) -> Dict[str, Any]:
         else:
              model_text = str(payload)
 
-    print(f"_invoke_bedrock: Extracted model text, length: {len(model_text)}")
+    logger.info(f"_invoke_bedrock: Extracted model text, length: {len(model_text)}")
 
     extracted = _json_loads_safely(model_text)
     extracted = _coerce_extraction_types(extracted)
-    print("_invoke_bedrock: JSON extraction successful")
+    logger.info("_invoke_bedrock: JSON extraction successful")
 
     _validate_schema_minimal(extracted)
-    print("_invoke_bedrock: Schema validation passed, returning extracted data")
+    logger.info("_invoke_bedrock: Schema validation passed, returning extracted data")
     return extracted
 
 
 def _coerce_extraction_types(obj: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Coerce extraction output values so every field is either a string or None.
-    Uses _coerce_value_to_string_or_none to handle dicts/lists/numbers/booleans.
+    Coerce only expected fields; unexpected fields are left as-is so validation can still reject them.
     """
-    print("_coerce_extraction_types: Coercing extraction output types using helper")
-    coerced: Dict[str, Any] = {}
-
+    logger.info("_coerce_extraction_types: Coercing extraction field types (if needed)")
     for k in FIELDS:
-        coerced[k] = _coerce_value_to_string_or_none(k, obj.get(k))
-
-    print("_coerce_extraction_types: Coercion complete")
-    return coerced
-
-
-def get_errors(ddb_item: Dict[str, Any]) -> List[str]:
-    logger.info("get_errors: Starting error extraction")
-    logger.debug(f"get_errors: Input item: {ddb_item}")
-
-    errors = []
-
-    for field in FIELDS:
-        value = ddb_item.get(field)
-        logger.debug(f"get_errors: Checking field '{field}', value: {value}")
-
-        if value in (None, "", "null"):
-            logger.warning(f"get_errors: Field '{field}' is empty or null")
-            errors.append(f"Field '{field}' is empty or null")
-
-    logger.info(f"get_errors: Error extraction completed, found {len(errors)} errors")
-    return errors
+        if k in obj:
+            obj[k] = _coerce_value_to_string_or_none(k, obj.get(k))
+    return obj
 
 
 def _coerce_value_to_string_or_none(field_name: str, value: Any) -> Optional[str]:
+    """
+    Bedrock models sometimes return objects/arrays for a field. Our schema expects:
+      - string, or
+      - null
+    This function coerces:
+      - dict -> compact JSON string
+      - list/tuple -> join items into a string (JSON for dict items)
+      - numbers/bools -> string
+      - empty/whitespace -> None
+    """
     if value is None:
         return None
 
@@ -315,9 +300,11 @@ def _coerce_value_to_string_or_none(field_name: str, value: Any) -> Optional[str
         return v if v else None
 
     if isinstance(value, dict):
+        logger.info(f"_coerce_value_to_string_or_none: Coercing dict -> string for field '{field_name}'")
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
     if isinstance(value, (list, tuple)):
+        logger.info(f"_coerce_value_to_string_or_none: Coercing list/tuple -> string for field '{field_name}'")
         parts: List[str] = []
         for item in value:
             if item is None:
@@ -333,183 +320,219 @@ def _coerce_value_to_string_or_none(field_name: str, value: Any) -> Optional[str
         joined = "\n".join(parts).strip()
         return joined if joined else None
 
+    logger.info(f"_coerce_value_to_string_or_none: Coercing {type(value).__name__} -> string for field '{field_name}'")
     s = str(value).strip()
     return s if s else None
 
 
 def _merge_extractions(extractions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Prefer first non-null value across chunks.
+    For long clauses, you might prefer concatenation; here we take first hit.
+    """
+    logger.info(f"_merge_extractions: Merging {len(extractions)} extraction results")
+
     merged: Dict[str, Any] = {k: None for k in FIELDS}
     for idx, ext in enumerate(extractions):
+        logger.debug(f"_merge_extractions: Processing extraction {idx + 1}/{len(extractions)}")
         for k in FIELDS:
             if merged[k] is None and ext.get(k) is not None:
+                logger.debug(f"_merge_extractions: Found value for field '{k}' in extraction {idx + 1}")
                 merged[k] = ext.get(k)
+
+    filled_fields = sum(1 for v in merged.values() if v is not None)
+    logger.info(f"_merge_extractions: Merge complete. {filled_fields}/{len(FIELDS)} fields populated")
     return merged
 
 
-# Textract helpers (async job)
+# -------- Textract (PDF/DOCX) via asynchronous job --------
 def _start_textract_job(bucket: str, key: str) -> str:
-    print(f"_start_textract_job: Starting Textract job for s3://{bucket}/{key}")
-    try:
-        resp = textract.start_document_text_detection(
-            DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
-        )
-    except Exception as e:
-        print(f"_start_textract_job: Failed to start Textract job: {e}")
-        raise
+    logger.info(f"_start_textract_job: Starting Textract job for s3://{bucket}/{key}")
 
-    # Log the response to help diagnostics (JobId and any metadata)
-    job_id = resp.get("JobId")
-    print(f"_start_textract_job: Textract start response JobId={job_id}, full_resp_keys={list(resp.keys())}")
+    resp = textract.start_document_text_detection(
+        DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
+    )
+    job_id = resp["JobId"]
+    logger.info(f"_start_textract_job: Textract job started successfully with JobId: {job_id}")
     return job_id
 
 
-def _wait_for_textract(job_id: str, timeout_seconds: Optional[int] = None) -> None:
-    if timeout_seconds is None:
-        timeout_seconds = TEXTRACT_WAIT_TIMEOUT
-    print(f"_wait_for_textract: Waiting for Textract job {job_id} (timeout: {timeout_seconds}s)")
+def _wait_for_textract(job_id: str, timeout_seconds: int = 180) -> None:
+    logger.info(f"_wait_for_textract: Waiting for Textract job {job_id} (timeout: {timeout_seconds}s)")
 
     start = time.time()
-    last_resp = None
     poll_count = 0
     while True:
         poll_count += 1
-        try:
-            resp = textract.get_document_text_detection(JobId=job_id, MaxResults=1)
-        except Exception as e:
-            print(f"_wait_for_textract: Error calling get_document_text_detection: {e}")
-            raise
-
-        last_resp = resp
-        status = resp.get("JobStatus")
-        print(f"_wait_for_textract: Poll #{poll_count}, Status: {status}")
-
-        # If Textract indicates partial success, treat as success but warn
-        if status == "SUCCEEDED":
-            print(f"_wait_for_textract: Job {job_id} succeeded after {time.time()-start:.1f}s ({poll_count} polls)")
-            return
-        if status == "PARTIAL_SUCCESS":
-            print(f"_wait_for_textract: Job {job_id} completed with PARTIAL_SUCCESS after {time.time()-start:.1f}s ({poll_count} polls)")
-            return
-        if status == "FAILED":
-            # include any returned failure info if present
-            failure_info = resp.get("StatusMessage") or resp
-            print(f"_wait_for_textract: Textract job failed: {failure_info}")
-            raise RuntimeError(f"Textract job ended with status=FAILED: {failure_info}")
-
-        # continue polling
+        resp = textract.get_document_text_detection(JobId=job_id, MaxResults=1)
+        status = resp["JobStatus"]
         elapsed = time.time() - start
-        if elapsed > timeout_seconds:
-            # include last_resp snippet to help diagnose
-            snippet = {}
-            try:
-                snippet = {k: last_resp.get(k) for k in ("JobStatus", "StatusMessage") if last_resp and k in last_resp}
-            except Exception:
-                snippet = {"note": "could not extract snippet"}
-            raise TimeoutError(f"Timed out waiting for Textract job {job_id} after {elapsed:.1f}s; last_resp={snippet}")
+
+        logger.debug(f"_wait_for_textract: Poll #{poll_count}, Status: {status}, Elapsed: {elapsed:.1f}s")
+
+        if status in ("SUCCEEDED", "FAILED", "PARTIAL_SUCCESS"):
+            if status != "SUCCEEDED":
+                logger.error(f"_wait_for_textract: Textract job ended with status={status}")
+                raise RuntimeError(f"Textract job ended with status={status}")
+            logger.info(f"_wait_for_textract: Textract job succeeded after {elapsed:.1f}s ({poll_count} polls)")
+            return
+
+        if time.time() - start > timeout_seconds:
+            logger.error(f"_wait_for_textract: Timeout after {timeout_seconds}s waiting for job {job_id}")
+            raise TimeoutError("Timed out waiting for Textract job")
 
         time.sleep(2)
 
 
 def _get_textract_text(job_id: str) -> str:
-    print(f"_get_textract_text: Fetching text for job {job_id}")
+    logger.info(f"_get_textract_text: Retrieving text from Textract job {job_id}")
+
     blocks: List[Dict[str, Any]] = []
     next_token: Optional[str] = None
+    page_count = 0
+
     while True:
+        page_count += 1
         kwargs = {"JobId": job_id, "MaxResults": 1000}
         if next_token:
             kwargs["NextToken"] = next_token
+
+        logger.debug(f"_get_textract_text: Fetching page {page_count} of results")
         resp = textract.get_document_text_detection(**kwargs)
         blocks.extend(resp.get("Blocks", []))
         next_token = resp.get("NextToken")
+
+        logger.debug(f"_get_textract_text: Page {page_count} returned {len(resp.get('Blocks', []))} blocks")
+
         if not next_token:
+            logger.info(f"_get_textract_text: Retrieved all {page_count} pages, total blocks: {len(blocks)}")
             break
+
+    # Collect LINE text in reading-ish order as returned
     lines = [b["Text"] for b in blocks if b.get("BlockType") == "LINE" and "Text" in b]
+    logger.info(f"_get_textract_text: Extracted {len(lines)} lines of text")
+
     text = "\n".join(lines).strip()
-    print(f"_get_textract_text: Retrieved {len(lines)} lines, total length {len(text)}")
+    logger.info(f"_get_textract_text: Final text length: {len(text)} characters")
     return text
 
 
-# Extend handler to run full pipeline
-def handler(event, context):
-    print("lambda_handler: Received event")
-    print(f"lambda_handler: Event details: {json.dumps(event)}")
+# -------- DynamoDB persistence --------
+# def _put_to_ddb(
+#         contract_id: str,
+#         s3_bucket: str,
+#         s3_key: str,
+#         vendor_metadata: Dict[str, Any],
+#         extracted: Dict[str, Any],
+# ) -> None:
+#     now = int(time.time())
+#     item = {
+#         "contract_id": contract_id,
+#         "source_s3_bucket": s3_bucket,
+#         "source_s3_key": s3_key,
+#         "vendor_metadata": vendor_metadata,
+#         "extracted": extracted,
+#         "created_at": now,
+#         "updated_at": now,
+#         "status": "INGESTED",
+#     }
+#     table.put_item(Item=item)
 
-    if not isinstance(event, dict):
-        raise ValueError("Event must be a dict")
 
-    contract_id = event.get("contract_id") or str(uuid.uuid4())
+# -------- Lambda handler --------
+def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Expected event shape (example):
+    {
+      "s3": {"bucket": "my-bucket", "key": "contracts/acme.pdf"},
+      "vendor_metadata": {"region":"NA","contract_type":"MSA"},
+      "contract_id": "optional-existing-id"
+    }
 
-    # parse s3 as before
-    bucket = None
-    key = None
-    if "s3" in event and isinstance(event["s3"], dict) and "bucket" in event["s3"] and "key" in event["s3"]:
+    If invoked directly from S3 EventBridge/S3 notification, you can adapt parsing below.
+    """
+    logger.info("=" * 80)
+    logger.info("handler: Lambda invocation started")
+    logger.info(f"handler: Event keys: {list(event.keys())}")
+
+    # --- Parse inputs ---
+    if "s3" in event:
+        logger.info("handler: Parsing event in direct S3 format")
         bucket = event["s3"]["bucket"]
         key = event["s3"]["key"]
-        print(f"lambda_handler: Parsed direct s3 shape -> s3://{bucket}/{key}")
-    elif "Records" in event and event["Records"] and isinstance(event["Records"], list) and "s3" in event["Records"][0]:
-        try:
-            rec = event["Records"][0]
-            bucket = rec["s3"]["bucket"]["name"]
-            key = rec["s3"]["object"]["key"]
-            # URL-decode the S3 object key
-            key = unquote_plus(key)
-            print(f"lambda_handler: Parsed S3 notification -> s3://{bucket}/{key}")
-        except Exception as e:
-            print(f"lambda_handler: Failed to parse S3 notification: {e}")
-            raise
-    elif "s3" in event and isinstance(event["s3"], dict) and "bucket" in event["s3"] and isinstance(event["s3"]["bucket"], dict) and "name" in event["s3"]["bucket"]:
-        bucket = event["s3"]["bucket"]["name"]
-        key = event["s3"].get("key") or (event["s3"].get("object") or {}).get("key")
-        print(f"lambda_handler: Parsed nested s3 shape -> s3://{bucket}/{key}")
+        vendor_metadata = event.get("vendor_metadata", {})
+        contract_id = event.get("contract_id") or str(uuid.uuid4())
+    elif "Records" in event and event["Records"] and "s3" in event["Records"][0]:
+        logger.info("handler: Parsing event in S3 notification format")
+        # S3 notification format
+        rec = event["Records"][0]
+        bucket = rec["s3"]["bucket"]["name"]
+        key = rec["s3"]["object"]["key"]
+        vendor_metadata = event.get("vendor_metadata", {})
+        contract_id = event.get("contract_id") or str(uuid.uuid4())
     else:
-        raise ValueError("Unsupported event format: expected 's3' or 'Records' with S3 notification")
+        logger.error("handler: Unsupported event format")
+        raise ValueError("Unsupported event format. Provide 's3' or S3 notification 'Records'.")
+
+    logger.info(f"handler: Contract ID: {contract_id}")
+    logger.info(f"handler: S3 Location: s3://{bucket}/{key}")
+    logger.info(f"handler: Vendor metadata: {vendor_metadata}")
 
     # --- Textract OCR ---
-    try:
-        job_id = _start_textract_job(bucket, key)
-        _wait_for_textract(job_id)
-        full_text = _get_textract_text(job_id)
-        if not full_text:
-            err = "Textract returned empty text"
-            print(err)
-            return {"status": "error", "reason": err, "contract_id": contract_id}
-    except Exception as e:
-        print(f"Error during Textract: {e}")
-        return {"status": "error", "reason": str(e), "contract_id": contract_id}
+    logger.info("handler: Starting Textract OCR phase")
+    job_id = _start_textract_job(bucket, key)
+    _wait_for_textract(job_id)
+    full_text = _get_textract_text(job_id)
+
+    if not full_text:
+        logger.error("handler: Textract returned empty text")
+        raise RuntimeError("Textract returned empty text")
+
+    logger.info("handler: Textract OCR phase completed successfully")
 
     # --- Chunking + Bedrock extraction ---
+    logger.info("handler: Starting chunking and Bedrock extraction phase")
     chunks = _chunk_text(full_text, MAX_CHARS_PER_CHUNK)
     extractions: List[Dict[str, Any]] = []
     errors: List[str] = []
 
+    logger.info(f"handler: Processing {len(chunks)} chunks with Bedrock")
     for idx, chunk in enumerate(chunks):
-        prompt = _build_prompt(chunk, event.get("vendor_metadata", {}))
+        logger.info(f"handler: Processing chunk {idx + 1}/{len(chunks)}")
+        prompt = _build_prompt(chunk, vendor_metadata)
         try:
-            extra = _invoke_bedrock(prompt)
-            extractions.append(extra)
+            extractions.append(_invoke_bedrock(prompt))
+            logger.info(f"handler: Successfully processed chunk {idx + 1}/{len(chunks)}")
         except Exception as e:
-            errors.append(f"chunk[{idx}]: {type(e).__name__}: {str(e)}")
+            error_msg = f"chunk[{idx}]: {type(e).__name__}: {str(e)}"
+            logger.error(f"handler: Failed to process chunk {idx + 1}: {error_msg}")
+            errors.append(error_msg)
 
     if not extractions:
-        err = f"All Bedrock extractions failed. Errors: {errors[:3]}"
-        print(err)
-        return {"status": "error", "reason": err, "contract_id": contract_id}
+        logger.error(f"handler: All Bedrock extractions failed. Errors: {errors[:3]}")
+        raise RuntimeError(f"All Bedrock extractions failed. Errors: {errors[:3]}")
 
+    logger.info(f"handler: Successfully extracted data from {len(extractions)}/{len(chunks)} chunks")
+
+    # --- Merge and validate ---
+    logger.info("handler: Merging extraction results")
     merged = _merge_extractions(extractions)
-    try:
-        _validate_schema_minimal(merged)
-    except Exception as e:
-        print(f"Validation failed: {e}")
-        return {"status": "error", "reason": str(e), "contract_id": contract_id}
+    _validate_schema_minimal(merged)
+    logger.info("handler: Merge and validation completed successfully")
 
+    # --- Store in DynamoDB ---
+    # _put_to_ddb(contract_id, bucket, key, vendor_metadata, merged)
+
+    logger.info("handler: Preparing final response")
     response = {
         "contract_id": contract_id,
         "source": {"bucket": bucket, "key": key},
         "extracted": merged,
         "chunk_count": len(chunks),
-        "bedrock_failures": errors,
+        "bedrock_failures": errors,  # keep for audit/debug; you can omit in production response
         "status": "INGESTED",
     }
 
-    print(f"lambda_handler: Completed ingestion for contract_id={contract_id}")
+    logger.info(f"handler: Lambda execution completed successfully. Status: {response['status']}")
+    logger.info("=" * 80)
     return response

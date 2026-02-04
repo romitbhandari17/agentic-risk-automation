@@ -5,14 +5,6 @@ variable "name_prefix" {
   type = string
 }
 
-# IAM Role: Lambda execution role
-# - Purpose: role assumed by AWS Lambda functions to get execution permissions (CloudWatch Logs, etc.)
-# - The trust policy below allows the Lambda service principal to assume this role
-resource "aws_iam_role" "lambda_role" {
-  name = "${var.name_prefix}-lambda-role"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-}
-
 # Data: IAM policy document for Lambda assume role
 # - Builds the JSON trust policy that lets the lambda.amazonaws.com service assume the role
 # - Kept as a data source so it can be referenced cleanly from the role resource
@@ -27,11 +19,93 @@ data "aws_iam_policy_document" "lambda_assume" {
   }
 }
 
+# IAM Role: Ingestion Lambda execution role
+# - Purpose: role assumed by Ingestion Lambda function
+# - Permissions: CloudWatch Logs, S3 read/write, Textract, Bedrock
+resource "aws_iam_role" "ingestion_lambda_role" {
+  name = "${var.name_prefix}-ingestion-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
 # Attach managed AWS policy for basic Lambda execution
-# - Gives the role permissions to write logs to CloudWatch (AWS managed policy)
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda_role.name
+resource "aws_iam_role_policy_attachment" "ingestion_lambda_basic" {
+  role       = aws_iam_role.ingestion_lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Inline policy for Ingestion Lambda - S3, Textract, Bedrock access
+resource "aws_iam_role_policy" "ingestion_lambda_policy" {
+  name = "${var.name_prefix}-ingestion-lambda-policy"
+  role = aws_iam_role.ingestion_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+      {
+        Action = [
+          "textract:DetectDocumentText",
+          "textract:AnalyzeDocument"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+      {
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# IAM Role: Risk Analysis Lambda execution role
+# - Purpose: role assumed by Risk Analysis Lambda function
+# - Permissions: CloudWatch Logs, S3 read, Bedrock
+resource "aws_iam_role" "risk_analysis_lambda_role" {
+  name = "${var.name_prefix}-risk-analysis-lambda-role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+# Attach managed AWS policy for basic Lambda execution
+resource "aws_iam_role_policy_attachment" "risk_analysis_lambda_basic" {
+  role       = aws_iam_role.risk_analysis_lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Inline policy for Risk Analysis Lambda - S3 read, Bedrock access
+resource "aws_iam_role_policy" "risk_analysis_lambda_policy" {
+  name = "${var.name_prefix}-risk-analysis-lambda-policy"
+  role = aws_iam_role.risk_analysis_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "s3:GetObject"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+      {
+        Action = [
+          "bedrock:InvokeModel"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # IAM Role: Step Functions execution role

@@ -26,10 +26,10 @@ crash.*.log
 
 # Keep lock files (recommended)
 !**/.terraform.lock.hcl
+.terraform.lock.hcl
 
 # --- Local env tfvars (often contain secrets) ---
-*.auto.tfvars
-*.tfvars
+local.auto.tfvars
 # If you want to keep a non-secret example committed, name it like:
 # dev.auto.tfvars.example (and keep it out of these ignore rules)
 

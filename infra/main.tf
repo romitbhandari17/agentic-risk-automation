@@ -21,16 +21,21 @@ module "iam" {
 module "lambda" {
   source        = "./modules/lambda"
   name_prefix   = "${var.project}-${var.env}"
-  lambda_role_arn = module.iam.lambda_role_arn
+  ingestion_lambda_role_arn = module.iam.ingestion_lambda_role_arn
+  risk_analysis_lambda_role_arn = module.iam.risk_analysis_lambda_role_arn
   s3_bucket     = module.s3.bucket
-  zip_path      = var.lambda_zip_path
+  ingestion_zip_path = var.ingestion_zip_path
+  risk_analysis_zip_path = var.risk_analysis_zip_path
 }
 
 module "step_functions" {
   source            = "./modules/step-functions"
   name_prefix       = "${var.project}-${var.env}"
   state_machine_role_arn = module.iam.sfn_role_arn
-  definition        = file("${path.module}/../step_functions/contract_review.asl.json")
+  definition        = templatefile("${path.module}/../step_functions/contract_review.asl.json", {
+    IngestionLambdaArn = module.lambda.ingestion_lambda_arn
+    RiskAnalysisLambdaArn = module.lambda.risk_analysis_lambda_arn
+  })
 }
 
 module "bedrock" {
