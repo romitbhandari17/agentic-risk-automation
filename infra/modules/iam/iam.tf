@@ -51,8 +51,13 @@ resource "aws_iam_role_policy" "ingestion_lambda_policy" {
       },
       {
         Action = [
+          # Support both synchronous and asynchronous Textract APIs used by the ingestion lambda
           "textract:DetectDocumentText",
-          "textract:AnalyzeDocument"
+          "textract:AnalyzeDocument",
+          "textract:StartDocumentTextDetection",
+          "textract:GetDocumentTextDetection",
+          "textract:StartDocumentAnalysis",
+          "textract:GetDocumentAnalysis"
         ]
         Effect   = "Allow"
         Resource = "*"
