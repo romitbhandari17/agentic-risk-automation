@@ -80,3 +80,36 @@ resource "aws_lambda_function" "risk_analysis" {
     }
   }
 }
+
+
+variable "sf_trigger_lambda_role_arn" {
+  type    = string
+  default = ""
+}
+
+variable "sf_trigger_zip_path" {
+  type    = string
+  default = ""
+}
+
+variable "sf_trigger_zip_hash" {
+  type    = string
+  default = ""
+}
+
+resource "aws_lambda_function" "sf_trigger" {
+  filename         = var.sf_trigger_zip_path != "" ? var.sf_trigger_zip_path : null
+  function_name    = "${var.name_prefix}-sf-trigger"
+  role             = var.sf_trigger_lambda_role_arn
+  handler          = "main.handler"
+  runtime          = var.runtime
+  source_code_hash = var.sf_trigger_zip_hash != "" ? var.sf_trigger_zip_hash : (var.sf_trigger_zip_path != "" ? filebase64sha256(var.sf_trigger_zip_path) : null)
+  timeout          = 300
+  memory_size      = 512
+
+  environment {
+    variables = {
+      S3_BUCKET = var.s3_bucket
+    }
+  }
+}
