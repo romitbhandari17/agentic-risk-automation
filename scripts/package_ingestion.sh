@@ -9,7 +9,7 @@ set -euo pipefail
 #  - ingestion.py         (module file)
 #  - any vendored dependencies installed into the archive root
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../" && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../" && pwd)"
 PKG_DIR="$REPO_ROOT/agents/ingestion"
 BUILD_DIR="$PKG_DIR/build"
 ZIP_PATH="$PKG_DIR/ingestion.zip"

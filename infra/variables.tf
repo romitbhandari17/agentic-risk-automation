@@ -30,3 +30,10 @@ variable "sf_trigger_zip_path" {
   default = ""
 }
 
+
+# variable "state_machine_arn" {
+#   type    = string
+#   default = ""
+# }
+
+

@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import logging
+from importlib.metadata import metadata
 from typing import Any, Dict
 import time
 from datetime import datetime, timezone
@@ -54,34 +55,54 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     }
     """
 
-    logger.info(f"event:", json.dumps(event, indent=2))
+    bucket=""
+    key=""
+    metadata=""
+    contract_id=""
+    logger.info(f"event: %s", json.dumps(event, indent=2))
 
-    # Generate contract ID if not provided
-    contract_id = event.get("contract_id") or str(uuid.uuid4())
+    if "Records" in event and event["Records"]:
+        rec = event["Records"][0]
+        try:
+            bucket = rec["s3"]["bucket"]["name"]
+            key = rec["s3"]["object"]["key"]
+            metadata =  rec.get("vendor_metadata") or ""
+            contract_id = rec.get("contract_id") or str(uuid.uuid4())
+            logger.info(f"S3 event - bucket=%s key=%s", bucket, key)
+        except KeyError:
+            logger.info("S3 record missing expected fields: %s", json.dumps(rec))
+    else:
+        s3 = event["s3"]
+        logger.info("S3 event - bucket=%s key=%s metadata=%s", s3.get("bucket"), s3.get("key"), event.get("vendor_metadata"))
+        bucket = s3.get("bucket")
+        key = s3.get("key")
+        metadata = event.get("vendor_metadata") or ""
+        contract_id = event.get("contract_id") or str(uuid.uuid4())
+
 
     # Prepare Step Functions input
     sfn_input = {
         "s3": {
-            "bucket": event["s3"].get("bucket"),
-            "key": event["s3"].get("key")
+            "bucket": bucket,
+            "key": key
         },
-        "vendor_metadata": event.get("vendor_metadata"),
+        "vendor_metadata": metadata,
         "contract_id": contract_id
     }
 
-    sfn_input = {
-        "s3": {
-            "bucket": "agentic-risk-automation-dev-artifacts",
-            "key": "contracts/contract.pdf"
-        },
-        "vendor_metadata": {
-            "region": "us-east-1",
-            "contract_type": "MSA"
-        }
-    }
+    # sfn_input = {
+    #     "s3": {
+    #         "bucket": "agentic-risk-automation-dev-artifacts",
+    #         "key": "contracts/contract.pdf"
+    #     },
+    #     "vendor_metadata": {
+    #         "region": "us-east-1",
+    #         "contract_type": "MSA"
+    #     }
+    # }
 
-    print("sfn_input:", json.dumps(sfn_input, indent=2))
-    logger.info(f"sfn_input:", json.dumps(sfn_input, indent=2))
+    print("sfn_input: %s", json.dumps(sfn_input, indent=2))
+    logger.info(f"sfn_input: %s", json.dumps(sfn_input, indent=2))
 
     # Start Step Functions execution and poll for completion (up to 5 minutes)
     execution_name = f"contract-{contract_id}-{uuid.uuid4().hex[:8]}"

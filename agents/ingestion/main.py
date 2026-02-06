@@ -155,7 +155,7 @@ def _chunk_text(text: str, max_chars: int) -> List[str]:
 
 def _build_prompt(contract_text_chunk: str, vendor_metadata: Dict[str, Any]) -> str:
     print("_build_prompt: Building prompt for Bedrock")
-    logger.debug(f"_build_prompt: Chunk length: {len(contract_text_chunk)}, Metadata keys: {list(vendor_metadata.keys())}")
+    logger.debug(f"_build_prompt: Chunk length: {len(contract_text_chunk)}, Metadata: {vendor_metadata}")
 
     prompt = f"""You are a contract ingestion agent.
 Extract the following fields ONLY in JSON (no commentary, no markdown, no code fences):

@@ -28,6 +28,11 @@ variable "sf_trigger_zip_path" {
   default = ""
 }
 
+variable "state_machine_arn" {
+  type    = string
+  default = ""
+}
+
 module "infra_root" {
   source = "../.."
 
@@ -37,4 +42,5 @@ module "infra_root" {
   ingestion_zip_path = var.ingestion_zip_path
   risk_analysis_zip_path = var.risk_analysis_zip_path
   sf_trigger_zip_path = var.sf_trigger_zip_path
+  # state_machine_arn = var.state_machine_arn
 }

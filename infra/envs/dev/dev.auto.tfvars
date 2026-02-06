@@ -8,5 +8,6 @@ ingestion_zip_path = "../../../agents/ingestion/ingestion.zip"
 risk_analysis_zip_path = "../../../agents/risk_analysis/risk_analysis_agent.zip"
 sf_trigger_zip_path = "../../../agents/trigger/trigger.zip"
 
+# state_machine_arn="arn:aws:states:us-east-1:968239734180:stateMachine:agentic-risk-automation-dev-contract-review"
 #Note: environment variables like AWS_PROFILE should NOT be placed in tfvars files.
 # Set them in your shell or CI environment instead, e.g. `export AWS_PROFILE="my-dev-profile"`.

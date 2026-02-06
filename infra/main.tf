@@ -16,10 +16,6 @@ module "s3" {
 module "iam" {
   source      = "./modules/iam"
   name_prefix = "${var.project}-${var.env}"
-  sf_trigger_lambda_name = module.lambda.sf_trigger_lambda_name
-  bucket_arn = module.s3.bucket_arn
-  bucket_id = module.s3.bucket
-  state_machine_arn = module.step_functions.state_machine_arn
 }
 
 module "lambda" {
@@ -34,6 +30,7 @@ module "lambda" {
   sf_trigger_zip_path = var.sf_trigger_zip_path
 }
 
+
 module "step_functions" {
   source            = "./modules/step-functions"
   name_prefix       = "${var.project}-${var.env}"
@@ -47,6 +44,28 @@ module "step_functions" {
 module "bedrock" {
   source      = "./modules/bedrock"
   name_prefix = "${var.project}-${var.env}"
+}
+
+module "notifications" {
+  source                = "./modules/notifications"
+  sf_trigger_lambda_arn = module.lambda.sf_trigger_lambda_arn
+  bucket_id             = module.s3.bucket
+  bucket_arn            = module.s3.bucket_arn
+
+  # ensure this module is applied after lambda and s3
+  depends_on = [module.lambda, module.s3]
+}
+
+module "iam_bindings" {
+  source      = "./modules/iam_bindings"
+  name_prefix = "${var.project}-${var.env}"
+  risk_analysis_lambda_role_name = module.iam.risk_analysis_lambda_role_name
+  ingestion_lambda_role_name = module.iam.ingestion_lambda_role_name
+  sfn_role_name = module.iam.sfn_role_name
+  state_machine_arn = module.step_functions.state_machine_arn
+  sf_trigger_lambda_role_name = module.iam.sf_trigger_lambda_role_name
+
+  depends_on = [module.iam, module.step_functions]
 }
 
 # Provide AWS account info for reference; useful for building ARNs or config
